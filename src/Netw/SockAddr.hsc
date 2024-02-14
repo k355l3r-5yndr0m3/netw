@@ -2,6 +2,11 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-|
+Module      : Netw.SockAddr
+Description : Various socket address types
+Portabilty  : Linux
+-}
 module Netw.SockAddr 
 ( SockAddr (..), Addr(..)
 , mkAddr

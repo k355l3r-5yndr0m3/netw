@@ -2,6 +2,13 @@
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE DataKinds #-}
+{-|
+Module      : Netw.Ancillary
+Description : Ancillary data
+Portabilty  : Linux
+
+This module contains ancillary data types. Ancillary data can be send and received via the sendmsg and recvmsg functions.
+-}
 module Netw.Ancillary where
 import Netw.Internal.Ancillary
 import qualified Netw.Internal.Cmsg as I
@@ -21,7 +28,7 @@ import System.Posix.Types
 import GHC.TypeLits
 
 class (Typeable a, KnownNatPair (Anci a)) => Ancillary a where
-  -- | This type family enforce an unique mapping between cmsg_level and cmsg_type value and the ancillary data type
+  -- | This type family enforces an unique mapping between cmsg_level and cmsg_type pair and the ancillary data type
   type Anci a = (r :: (Nat, Nat)) | r -> a
   -- ^ the order is (cmsg_level, cmsg_type)
 
@@ -90,7 +97,7 @@ encodeAncillaryData cmsgs = runByteArray $ do
 -- ^ Used internally
 
 {-# INLINE decodeAncillaryData #-}
--- | Decode a buffer of control message elements. NOTE: The bytearray must be shrunk to `msg_controllen` bytes.
+-- | Decode a buffer of control message elements. NOTE: The bytearray must be shrunk to `msg_controllen` bytes before being passed to this function.
 decodeAncillaryData :: ByteArray -> [AncillaryData]
 decodeAncillaryData cmsgs = fix (\ as offs ->
   if offs < size then
@@ -102,7 +109,7 @@ decodeAncillaryData cmsgs = fix (\ as offs ->
     in  andat:as (offs + space)
   else []) 0
   where size = sizeofByteArray cmsgs
--- ^ Used internally. Each AncillaryData element keep the entire bytearray alive.
+-- ^ Used internally. Every AncillaryData element holds a reference to the bytearray and keeps it alive.
 
 -- | Transfer file descriptors between sockets
 newtype ScmRights = ScmRights [Fd]

@@ -4,6 +4,13 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-|
+Module      : Netw.Inet
+Description : Internet
+Portabilty  : Linux
+
+This module contains internet address types and some utility functions.
+-}
 module Netw.Inet where
 import Netw.Internal.Type
 import Netw.Internal.Port
@@ -145,7 +152,7 @@ instance Show In6Addr where
 -- Port number in internet addresses.
 -- The port number is stored in host byteorder and is converted into network
 -- byteorder when needed.
-newtype Port = Port Word16 deriving (Eq, Ord, Num)
+newtype Port = Port Word16 deriving (Eq, Ord, Num, Show)
 
 -- Ports
 $(declarePorts 'Port)

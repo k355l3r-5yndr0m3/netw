@@ -161,8 +161,8 @@ send# fd buf# offs size flags =
     (send_# fd buf# offs size flags)
 
 foreign import ccall unsafe "send"
-  send_ :: Fd -> Ptr () -> CSize -> MsgFlags -> IO CSsize 
-send :: Fd -> Ptr () -> CSize -> MsgFlags -> IO CSsize
+  send_ :: Fd -> Ptr Word8 -> CSize -> MsgFlags -> IO CSsize 
+send :: Fd -> Ptr Word8 -> CSize -> MsgFlags -> IO CSsize
 send fd buf size flags = 
   throwErrnoIfMinus1UnlessEAGAINorEWOULDBLOCK "send failed"
     (send_ fd buf size flags)
@@ -174,8 +174,8 @@ sendto# fd buf# offs size flags addr# addrlen =
   throwErrnoIfMinus1UnlessEAGAINorEWOULDBLOCK "sendto failed"
     (sendto_# fd buf# offs size flags addr# addrlen)
 foreign import ccall unsafe "sendto"
-  sendto_  :: Fd -> Ptr () -> CSize -> MsgFlags -> ByteArray# -> CSocklen -> IO CSsize
-sendto :: Fd -> Ptr () -> CSize -> MsgFlags -> ByteArray# -> CSocklen -> IO CSsize
+  sendto_  :: Fd -> Ptr Word8 -> CSize -> MsgFlags -> ByteArray# -> CSocklen -> IO CSsize
+sendto :: Fd -> Ptr Word8 -> CSize -> MsgFlags -> ByteArray# -> CSocklen -> IO CSsize
 sendto fd buf size flags addr# addrlen = 
   throwErrnoIfMinus1UnlessEAGAINorEWOULDBLOCK "sendto failed"
     (sendto_ fd buf size flags addr# addrlen)
@@ -202,8 +202,8 @@ recv# fd buf# offs size flags =
     (recv_# fd buf# offs size flags)
 
 foreign import ccall unsafe "recv"
-  recv_ :: Fd -> Ptr () -> CSize -> MsgFlags -> IO CSsize
-recv :: Fd -> Ptr () -> CSize -> MsgFlags -> IO CSsize
+  recv_ :: Fd -> Ptr Word8 -> CSize -> MsgFlags -> IO CSsize
+recv :: Fd -> Ptr Word8 -> CSize -> MsgFlags -> IO CSsize
 recv fd buf size flags =
   retryOrThrowErrnoIfMinus1 "recv failed"
     (recv_ fd buf size flags)
@@ -216,8 +216,8 @@ recvfrom# fd buf# offs size flags addr# addrlen =
     (recvfrom_# fd buf# offs size flags addr# addrlen)
 
 foreign import ccall unsafe "recvfrom"
-  recvfrom_ :: Fd -> Ptr () -> CSize -> MsgFlags -> MutableByteArray# RealWorld -> Ptr CSocklen -> IO CSsize
-recvfrom :: Fd -> Ptr () -> CSize -> MsgFlags -> MutableByteArray# RealWorld -> Ptr CSocklen -> IO CSsize
+  recvfrom_ :: Fd -> Ptr Word8 -> CSize -> MsgFlags -> MutableByteArray# RealWorld -> Ptr CSocklen -> IO CSsize
+recvfrom :: Fd -> Ptr Word8 -> CSize -> MsgFlags -> MutableByteArray# RealWorld -> Ptr CSocklen -> IO CSsize
 recvfrom fd buf size flags addr# addrlen =
   retryOrThrowErrnoIfMinus1 "recvfrom failed"
     (recvfrom_ fd buf size flags addr# addrlen)

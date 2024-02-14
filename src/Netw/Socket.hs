@@ -59,7 +59,10 @@ newtype Socket = MkSocket { unSocket :: Fd }
 
 -- | Create a new socket (see `man 3 socket`)
 socket :: ProtocolFamily -> SocketType -> Protocol -> IO Socket
-socket domain stype protocol = MkSocket <$> I.socket domain stype protocol
+socket domain   -- ^ The protocol family of the address (an PF_* value)
+       stype    -- ^ The socket types (SOCK_STREAM, SOCK_RAW, etc)
+       protocol -- ^ The protocol. Usually passing DefaultProtocol work.
+  = MkSocket <$> I.socket domain stype protocol
 
 -- | Close a socket (see `man 3 close`)
 closeSocket :: Socket -> IO ()
@@ -77,16 +80,16 @@ listen (unSocket -> sock) (fromIntegral -> backlog) =
   I.listen sock backlog
 
 -- | Retrieve the name of the socket (see `man 3 getsockname`)
-getsockname :: Socket -> IO ByteArray
+getsockname :: Socket -> IO Addr
 getsockname (unSocket -> sock) = 
   with 0 $ \ sockaddrLen -> do
     I.getsockname sock nullPtr sockaddrLen
     sockaddr@(MutableByteArray sockaddr#) <- newByteArray . fromIntegral =<< peek sockaddrLen
     I.getsockname# sock sockaddr# sockaddrLen
-    unsafeFreezeByteArray sockaddr
+    mkAddr <$> unsafeFreezeByteArray sockaddr
 
 -- | Extract the first connection on the pending connection queue (see `man 3 accept`). This function blocks the calling thread until a connection is made.
-accept :: Socket -> IO (Socket, ByteArray)
+accept :: Socket -> IO (Socket, Addr)
 accept (unSocket -> sock) = 
   with sockaddrLenGuess $ \ sockaddrLen -> do -- TODO: Check the doc if the address returned from accept is the same as getsockname
     sockaddr@(MutableByteArray sockaddr#) <- newByteArray (fromIntegral sockaddrLenGuess)
@@ -97,9 +100,9 @@ accept (unSocket -> sock) =
       then do
         addr@(MutableByteArray addr#) <- newByteArray (fromIntegral len)
         I.getsockname# (unSocket peer) addr# sockaddrLen
-        unsafeFreezeByteArray addr
+        mkAddr <$> unsafeFreezeByteArray addr
       else do
-        unsafeFreezeByteArray =<< resizeMutableByteArray sockaddr (fromIntegral len)
+        mkAddr <$> (unsafeFreezeByteArray =<< resizeMutableByteArray sockaddr (fromIntegral len))
   where sockaddrLenGuess = 128
 
 -- | A version of `accept` which does not return the peer address
@@ -123,11 +126,20 @@ connect (unSocket -> sock) sockaddr@(sockAddrToByteArray -> addr@(ByteArray addr
 -- Block the current thread until some bytes are sent.
 -- (see `man 3 send`)
 send :: Socket -> ByteArray -> Int -> Int -> MsgFlags -> IO Int
-send (unSocket -> fd) (ByteArray buf#) offs size flags = fromIntegral <$> I.send# fd buf# (fromIntegral offs) (fromIntegral size) flags
+send (unSocket -> fd) -- ^ A connected socket
+     (ByteArray buf#) -- ^ Message buffer
+     offs             -- ^ Offset in bytes into the message buffer to start sending
+     size             -- ^ Number of bytes to send
+     flags            -- ^ Specify the type of message transmisstion (MSG_EOR, MSG_OOB, MSG_NOSIGNAL or more depend on platform)
+  = fromIntegral <$> I.send# fd buf# (fromIntegral offs) (fromIntegral size) flags
 
 -- | A version of `send` that accept a pointer instead of a bytearray.
-send' :: Socket -> Ptr () -> Int -> MsgFlags -> IO Int
-send' (unSocket -> sockfd) buf len flags = fromIntegral <$> I.send sockfd buf (fromIntegral len) flags
+send' :: Socket -> Ptr Word8 -> Int -> MsgFlags -> IO Int
+send' (unSocket -> sockfd) -- ^ A connected socket
+      buf                  -- ^ Pointer to the message buffer
+      len                  -- ^ Number of bytes to send
+      flags                -- ^ Specify the type of message transmisstion (MSG_EOR, MSG_OOB, MSG_NOSIGNAL or more depend on platform)
+  = fromIntegral <$> I.send sockfd buf (fromIntegral len) flags
 
 -- | 
 -- Send the whole content of a bytearray through a socket.
@@ -144,13 +156,22 @@ sendall sock buf flags = fix (\ resend offs size ->
 -- the number of bytes specified.
 -- Block the thread until some bytes are sent.
 sendto :: SockAddr a => Socket -> ByteArray -> Int -> Int -> MsgFlags -> a -> IO Int
-sendto (unSocket -> fd) (ByteArray buf#) offs size flags (sockAddrToByteArray -> addr@(ByteArray addr#)) =
-  fromIntegral <$> I.sendto# fd buf# (fromIntegral offs) (fromIntegral size) flags addr# (fromIntegral $ sizeofByteArray addr)
+sendto (unSocket -> fd) -- ^ A connection-mode or connectionless-mode socket
+       (ByteArray buf#) -- ^ The buffer containing the message
+       offs             -- ^ Offset in bytes into the message buffer specifying where to start sending
+       size             -- ^ Number of bytes to send
+       flags            -- ^ Transmission flags
+       (sockAddrToByteArray -> addr@(ByteArray addr#)) -- ^ Destination address (Should be SockAddrNull if using a connected socket)
+  = fromIntegral <$> I.sendto# fd buf# (fromIntegral offs) (fromIntegral size) flags addr# (fromIntegral $ sizeofByteArray addr)
 
 -- | A version of `sendto` that accept a pointer instead of a bytearray
-sendto' :: SockAddr a => Socket -> Ptr () -> Int -> MsgFlags -> a -> IO Int
-sendto' (unSocket -> sockfd) buf (fromIntegral -> len) flags (sockAddrToByteArray -> addr@(ByteArray addr#)) =
-  fromIntegral <$> I.sendto sockfd buf len flags addr# (fromIntegral $ sizeofByteArray addr)
+sendto' :: SockAddr a => Socket -> Ptr Word8 -> Int -> MsgFlags -> a -> IO Int
+sendto' (unSocket -> sockfd)  -- ^ A connection-mode or connectionless-mode socket
+        buf                   -- ^ Pointer to message buffer
+        (fromIntegral -> len) -- ^ Number of bytes to send
+        flags                 -- ^ Transmission flags
+        (sockAddrToByteArray -> addr@(ByteArray addr#)) -- ^ Destination address
+  = fromIntegral <$> I.sendto sockfd buf len flags addr# (fromIntegral $ sizeofByteArray addr)
 
 -- | Send the whole content of a bytearray
 sendallto :: SockAddr a => Socket -> ByteArray -> MsgFlags -> a -> IO ()
@@ -175,8 +196,12 @@ may be less than the intended message size.
 (See `man 3 sendmsg`)
 -}
 sendmsg :: SockAddr a => Socket -> a -> [(ByteArray, Int, Int)] -> [AncillaryData] -> MsgFlags -> IO Int
-sendmsg (unSocket -> sockfd) addr (unzip3 -> (iovecs, offs, size)) (encodeAncillaryData -> control) flags = 
-  withByteArrayContents control $ \ control' ->
+sendmsg (unSocket -> sockfd)              -- ^ A connection-mode or connectionless-mode socket
+        addr                              -- ^ Destination address
+        (unzip3 -> (iovecs, offs, size))  -- ^ A list of message which will be send from left to right. Semantics: (Buffer, Offset(bytes), Size(bytes))
+        (encodeAncillaryData -> control)  -- ^ Ancillary data
+        flags                             -- ^ Transmisstion flags
+  = withByteArrayContents control $ \ control' ->
     fromIntegral <$> I.sendmsg# sockfd 
                                 addr# (fromIntegral addrLen)
                                 iovecs# offs# size# (fromIntegral iovlen)
@@ -234,10 +259,15 @@ Return the number of bytes received. (See `man 3 recv`)
 Block the calling thread until some bytes are received.
 -}
 recv :: Socket -> MutableByteArray RealWorld -> Int -> Int -> MsgFlags -> IO Int
-recv (unSocket -> sockfd) (MutableByteArray buf#) offs size = fmap fromIntegral . I.recv# sockfd buf# (fromIntegral offs) (fromIntegral size)
+recv (unSocket -> sockfd)    -- ^ A socket to receive messages from
+     (MutableByteArray buf#) -- ^ Buffer to store message
+     offs                    -- ^ Offset in bytes into the buffer
+     size                    -- ^ Number of bytes allowed
+     flags                   -- ^ Transmission flags
+  = fmap fromIntegral $ I.recv# sockfd buf# (fromIntegral offs) (fromIntegral size) flags
 
 -- | A version of `recv` that takes a pointer instead of a mutablebytearray
-recv' :: Socket -> Ptr () -> Int -> MsgFlags -> IO Int 
+recv' :: Socket -> Ptr Word8 -> Int -> MsgFlags -> IO Int 
 recv' (unSocket -> sockfd) buf size = fmap fromIntegral . I.recv sockfd buf (fromIntegral size)
 
 recvfromImpl :: Socket -> MutableByteArray RealWorld -> Int -> Int -> MsgFlags -> IO (Int, ByteArray)
@@ -261,10 +291,15 @@ Return the number of bytes received.
 (See `man 3 recvfrom`)
 -}
 recvfrom :: Socket -> MutableByteArray RealWorld -> Int -> Int -> MsgFlags -> IO (Int, Addr)
-recvfrom sock buf offs size flags = fmap mkAddr <$> recvfromImpl sock buf offs size flags
+recvfrom sock  -- ^ A socket to receive messages from
+         buf   -- ^ Buffer to store message
+         offs  -- ^ Offset in bytes into the buffer
+         size  -- ^ Number of bytes allowed
+         flags -- ^ Transmission flags
+  = fmap mkAddr <$> recvfromImpl sock buf offs size flags
 
 -- | A version of `recvfrom` that takes a pointer
-recvfrom' :: Socket -> Ptr () -> Int -> MsgFlags -> IO (Int, Addr)
+recvfrom' :: Socket -> Ptr Word8 -> Int -> MsgFlags -> IO (Int, Addr)
 recvfrom' (unSocket -> sockfd) buf len flags = fmap mkAddr <$> do
   addr@(MutableByteArray addr#) <- newSockAddrStorage
   addrlen <- getSizeofMutableByteArray addr
@@ -276,7 +311,7 @@ recvfrom' (unSocket -> sockfd) buf len flags = fmap mkAddr <$> do
     shrinkMutableByteArray addr . fromIntegral =<< peek addrlen'
     (fromIntegral bytesRecv,) <$> unsafeFreezeByteArray addr 
 
--- | A version of recvfrom that automatically allocate a bytearray
+-- | A version of recvfrom that automatically allocates a bytearray
 recvsomefrom :: Socket -> Int -> MsgFlags -> IO (ByteArray, Addr)
 recvsomefrom sock size flags = do
   buf <- newByteArray size
@@ -292,7 +327,11 @@ the number of bytes to write to said bytearray.
 (See `man 3 recvmsg`)
 -}
 recvmsg :: Socket -> [(MutableByteArray RealWorld, Int, Int)] -> Int -> MsgFlags -> IO (Int, MsgFlags, [AncillaryData], Addr)
-recvmsg (unSocket -> sockfd) (unzip3 -> (iovecs, map fromIntegral -> offs :: [CPtrdiff], map fromIntegral -> size :: [CSize])) controllen flags = do
+recvmsg (unSocket -> sockfd) -- ^ The socket to recv message from
+        (unzip3 -> (iovecs, map fromIntegral -> offs :: [CPtrdiff], map fromIntegral -> size :: [CSize])) -- ^ The storages buffers which will be filled from left to right. Semantics (Buffer, Offset(bytes), Size(Bytes))
+        controllen -- ^ Maximum size of ancillary data in bytes.
+        flags      -- ^ Transmission flags
+  = do
   control <- newCmsgBuffer controllen
   name@(MutableByteArray sockaddr#) 
           <- newSockAddrStorage
