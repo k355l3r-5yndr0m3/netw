@@ -65,12 +65,6 @@ ntoh32 (W32# w) = W32# (ntoh32# w)
 ntoh64 :: Word64 -> Word64
 ntoh64 (W64# w) = W64# (ntoh64# w)
 
--- |
--- Port number in internet addresses.
--- The port number is stored in host byteorder and is converted into network
--- byteorder when needed.
-newtype Port = Port Word16 deriving (Eq, Ord, Num)
-
 -- | Get the port number in network byteorder 
 getPortInBE :: Port -> Word16
 getPortInBE (Port p) = hton16 p
@@ -79,8 +73,6 @@ getPortInBE (Port p) = hton16 p
 portFromBE :: Word16 -> Port
 portFromBE = Port . ntoh16
 
--- Ports
-$(declarePorts 'Port)
 
 -- | Evaluate to True if port is reserved for super user use.
 isReserved :: Port -> Bool
@@ -147,3 +139,13 @@ unIp6 (In6Addr# (# high#, low# #)) = (vc 3 high#, vc 2 high#, vc 1 high#, vc 0 h
 instance Show In6Addr where
   showsPrec _ addr = foldr (\ a as -> showHex a . (':' :) . as ) id groups
     where groups = let (a, b, c, d, e, f, g, h) = unIp6 addr in [a, b, c, d, e, f, g, h]
+
+
+-- |
+-- Port number in internet addresses.
+-- The port number is stored in host byteorder and is converted into network
+-- byteorder when needed.
+newtype Port = Port Word16 deriving (Eq, Ord, Num)
+
+-- Ports
+$(declarePorts 'Port)
