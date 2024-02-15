@@ -12,7 +12,7 @@ import Data.Bits
 import Data.Word
 
 import System.Posix
-import Control.Concurrent (threadDelay)
+import System.Exit
 
 
 messages :: [ByteArray]
@@ -83,6 +83,11 @@ client = do
 
 main :: IO ()
 main = do
-  _ <- forkProcess server
-  _ <- forkProcess client
-  threadDelay 50000
+  s <- forkProcess server
+  c <- forkProcess client
+  serverExit <- maybe (fail "Server failure") return =<< getProcessStatus True True s
+  clientExit <- maybe (fail "Client failure") return =<< getProcessStatus True True c
+
+  case (serverExit, clientExit) of
+    (Exited ExitSuccess, Exited ExitSuccess) -> exitSuccess
+    _otherwise -> exitFailure
